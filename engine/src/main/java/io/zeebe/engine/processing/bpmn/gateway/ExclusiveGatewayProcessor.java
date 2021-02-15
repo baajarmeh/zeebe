@@ -11,6 +11,7 @@ import static io.zeebe.util.buffer.BufferUtil.bufferAsString;
 
 import io.zeebe.el.Expression;
 import io.zeebe.engine.processing.bpmn.BpmnElementContext;
+import io.zeebe.engine.processing.bpmn.BpmnElementContextImpl;
 import io.zeebe.engine.processing.bpmn.BpmnElementProcessor;
 import io.zeebe.engine.processing.bpmn.BpmnProcessingException;
 import io.zeebe.engine.processing.bpmn.behavior.BpmnBehaviors;
@@ -57,37 +58,47 @@ public final class ExclusiveGatewayProcessor
   }
 
   @Override
-  public void onActivating(
-      final ExecutableExclusiveGateway element, final BpmnElementContext context) {
+  public void onActivate(
+      final ExecutableExclusiveGateway element, final BpmnElementContextImpl context) {
+    final var activatingContext = stateTransitionBehavior.transitionToActivating(context);
     if (element.getOutgoing().isEmpty()) {
       // there are no flows to take: the gateway is an implicit end for the flow scope
-      stateTransitionBehavior.transitionToActivated(context);
-      return;
+      final var activatedContext = stateTransitionBehavior.transitionToActivated(activatingContext);
+      stateTransitionBehavior.transitionToCompleting(activatedContext);
+    } else {
+      // find outgoing sequence flow with fulfilled condition or the default
+      findSequenceFlowToTake(element, activatingContext)
+          .ifRightOrLeft(
+              sequenceFlow -> {
+                final var activatedContext =
+                    stateTransitionBehavior.transitionToActivated(activatingContext);
+
+                // defer sequence flow taken, as it will only be taken when the gateway is completed
+                record.wrap(activatingContext.getRecordValue());
+                record.setElementId(sequenceFlow.getId());
+                record.setBpmnElementType(BpmnElementType.SEQUENCE_FLOW);
+                deferredRecordsBehavior.deferNewRecord(
+                    activatingContext,
+                    activatingContext.getElementInstanceKey(),
+                    record,
+                    WorkflowInstanceIntent.SEQUENCE_FLOW_TAKEN);
+
+                stateTransitionBehavior.transitionToCompleting(activatedContext);
+              },
+              failure -> incidentBehavior.createIncident(failure, activatingContext));
     }
+  }
 
-    // find outgoing sequence flow with fulfilled condition or the default
-    findSequenceFlowToTake(element, context)
-        .ifRightOrLeft(
-            sequenceFlow -> {
-              stateTransitionBehavior.transitionToActivated(context);
-
-              // defer sequence flow taken, as it will only be taken when the gateway is completed
-              record.wrap(context.getRecordValue());
-              record.setElementId(sequenceFlow.getId());
-              record.setBpmnElementType(BpmnElementType.SEQUENCE_FLOW);
-              deferredRecordsBehavior.deferNewRecord(
-                  context,
-                  context.getElementInstanceKey(),
-                  record,
-                  WorkflowInstanceIntent.SEQUENCE_FLOW_TAKEN);
-            },
-            failure -> incidentBehavior.createIncident(failure, context));
+  @Override
+  public void onActivating(
+      final ExecutableExclusiveGateway element, final BpmnElementContext context) {
+    throw new UnsupportedOperationException("This method is replaced by onActivate");
   }
 
   @Override
   public void onActivated(
       final ExecutableExclusiveGateway element, final BpmnElementContext context) {
-    stateTransitionBehavior.transitionToCompleting(context);
+    throw new UnsupportedOperationException("This method is replaced by onActivate");
   }
 
   @Override
