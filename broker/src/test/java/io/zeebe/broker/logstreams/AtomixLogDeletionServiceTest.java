@@ -37,6 +37,7 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
 
+// TODO: rewrite these tests to not know implementation details of compaction
 public final class AtomixLogDeletionServiceTest {
 
   private static final ByteBuffer DATA = ByteBuffer.allocate(Integer.BYTES).putInt(0, 1);
@@ -133,10 +134,9 @@ public final class AtomixLogDeletionServiceTest {
   private static RaftStorage.Builder builder(
       final RaftStorage.Builder builder, final TemporaryFolder folder) {
     try {
-      final int length = getEntrySize();
       return builder
-          // hardcode max segment size to allow a single entry only
-          .withMaxSegmentSize(JournalSegmentDescriptor.BYTES + 2 * Integer.BYTES + length)
+          // TODO: hardcoded to have one entry per segment, but these tests break our abstraction
+          .withMaxSegmentSize(JournalSegmentDescriptor.BYTES + 182)
           .withSnapshotStore(
               new FileBasedSnapshotStore(
                   new SnapshotMetrics("1"),
@@ -145,14 +145,6 @@ public final class AtomixLogDeletionServiceTest {
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     }
-  }
-
-  private static int getEntrySize() {
-    final ZeebeEntry entry =
-        new ZeebeEntry(
-            Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE, DATA);
-    final byte[] serialize = RaftNamespaces.RAFT_STORAGE.serialize(entry);
-    return serialize.length;
   }
 
   private List<Indexed<?>> readAllEntries(final RaftLogReader reader) {

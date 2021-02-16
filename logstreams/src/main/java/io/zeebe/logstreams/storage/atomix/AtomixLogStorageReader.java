@@ -8,6 +8,7 @@
 package io.zeebe.logstreams.storage.atomix;
 
 import io.atomix.raft.storage.log.RaftLogReader;
+import io.atomix.raft.storage.log.entry.RaftLogEntry;
 import io.atomix.raft.zeebe.ZeebeEntry;
 import io.atomix.storage.journal.Indexed;
 import io.zeebe.logstreams.spi.LogStorage;
@@ -17,12 +18,9 @@ import org.agrona.DirectBuffer;
 
 public final class AtomixLogStorageReader implements LogStorageReader {
   private final RaftLogReader reader;
-  private final ZeebeIndexMapping zeebeIndexMapping;
 
-  public AtomixLogStorageReader(
-      final ZeebeIndexMapping zeebeIndexMapping, final RaftLogReader reader) {
+  public AtomixLogStorageReader(final RaftLogReader reader) {
     this.reader = reader;
-    this.zeebeIndexMapping = zeebeIndexMapping;
   }
 
   /**
@@ -38,8 +36,9 @@ public final class AtomixLogStorageReader implements LogStorageReader {
    */
   @Override
   public boolean isEmpty() {
+    // although seemingly inefficient, the log will contain mostly ZeebeEntry entries and a few
+    // InitialEntry, so this should be rather fast in practice
     reader.reset();
-
     while (reader.hasNext()) {
       if (reader.next().type() == ZeebeEntry.class) {
         return false;
@@ -50,11 +49,14 @@ public final class AtomixLogStorageReader implements LogStorageReader {
 
   @Override
   public long read(final DirectBuffer readBuffer, final long address) {
-    if (address < reader.getFirstIndex()) {
+    final long index = reader.reset(address);
+
+    // TODO: check if important to return OP_RESULT_INVALID_ADDR if we tried to seek before
+    if (index > address) {
       return LogStorage.OP_RESULT_INVALID_ADDR;
     }
 
-    if (address > reader.getLastIndex()) {
+    if (!reader.hasNext()) {
       return LogStorage.OP_RESULT_NO_DATA;
     }
 
@@ -75,31 +77,20 @@ public final class AtomixLogStorageReader implements LogStorageReader {
     return entry.index() + 1;
   }
 
-  /**
-   * This is currently a quite slow implementation as Atomix does not support navigating backwards;
-   * it would require a refactor there if this is ever too slow.
-   *
-   * <p>{@inheritDoc}
-   */
+  // TODO: good candidate to use a seekToLastASQN()
   @Override
   public long readLastBlock(final DirectBuffer readBuffer) {
-    final var firstIndex = reader.getFirstIndex();
-    var index = reader.getLastIndex();
+    // TODO: could we ever have uncommitted entries with valid ASQNs on the log? then this would
+    //       explode
+    reader.seekToAsqn(Long.MAX_VALUE);
 
-    do {
-      reader.reset(index);
-      if (!reader.hasNext()) {
-        break;
+    if (reader.hasNext()) {
+      final Indexed<RaftLogEntry> entry = reader.next();
+      if (entry.type() == ZeebeEntry.class) {
+        wrapEntryData(entry.cast(), readBuffer);
+        return entry.index() + 1;
       }
-
-      final var indexed = reader.next();
-      if (indexed.type() == ZeebeEntry.class) {
-        wrapEntryData(indexed.cast(), readBuffer);
-        return indexed.index() + 1;
-      }
-
-      index--;
-    } while (index >= firstIndex);
+    }
 
     return LogStorage.OP_RESULT_NO_DATA;
   }
@@ -111,38 +102,35 @@ public final class AtomixLogStorageReader implements LogStorageReader {
    */
   @Override
   public long lookUpApproximateAddress(final long position) {
-    final var low = reader.getFirstIndex();
-    final var high = reader.getLastIndex();
-
     if (position == Long.MIN_VALUE) {
-      final var optionalEntry = findEntry(reader.getFirstIndex());
-      return optionalEntry.map(Indexed::index).orElse(LogStorage.OP_RESULT_INVALID_ADDR);
+      return readFirstBlock();
     }
 
-    // when the log is empty, the last index is defined as first index - 1
-    if (low >= high) {
-      // need a better way to figure out how to know if its empty
-      if (findEntry(low).isEmpty()) {
-        return LogStorage.OP_RESULT_INVALID_ADDR;
-      }
-
-      return low;
+    final long address;
+    try {
+      address = reader.seekToAsqn(position);
+    } catch (final UnsupportedOperationException e) {
+      // in case we seek to an unknown position
+      return LogStorage.OP_RESULT_INVALID_ADDR;
     }
 
-    final var index = zeebeIndexMapping.lookupPosition(position);
-    final long result;
-    if (index == -1) {
-      result = low;
-    } else {
-      result = index;
+    if (!reader.hasNext()) {
+      return LogStorage.OP_RESULT_INVALID_ADDR;
     }
 
-    return result;
+    return address;
   }
 
   @Override
   public void close() {
     reader.close();
+  }
+
+  // TODO: good candidate to use a seekToFirstASQN()
+  private long readFirstBlock() {
+    // TODO: passing in Long.MIN_VALUE causes the underlying it to overflow when seeking, resulting
+    // in the reader being at the end of the log
+    return findEntry(0).map(Indexed::index).orElse(LogStorage.OP_RESULT_INVALID_ADDR);
   }
 
   /**
@@ -151,10 +139,13 @@ public final class AtomixLogStorageReader implements LogStorageReader {
    * @param index index to seek to
    */
   public Optional<Indexed<ZeebeEntry>> findEntry(final long index) {
-    // in the future, reset/seek to the same index will be a NOOP so we can just call it all the
-    // time; right now it's a bit slow, but we will immediately implement the new journal so this
-    // is fine
-    reader.reset(index);
+    // TODO: without getting the current entry, we now always have to do a double seek, since we
+    //  first find the entry, then seek back to it again
+    final long nextIndex = reader.reset(index);
+
+    if (nextIndex < index) {
+      return Optional.empty();
+    }
 
     while (reader.hasNext()) {
       final var entry = reader.next();
