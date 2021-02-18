@@ -10,10 +10,8 @@ package io.zeebe.broker.logstreams;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.atomix.raft.partition.impl.RaftNamespaces;
 import io.atomix.raft.storage.RaftStorage;
 import io.atomix.raft.storage.log.RaftLogReader;
-import io.atomix.raft.zeebe.ZeebeEntry;
 import io.atomix.storage.journal.Indexed;
 import io.atomix.storage.journal.JournalSegmentDescriptor;
 import io.zeebe.logstreams.util.AtomixLogStorageRule;
