@@ -33,7 +33,22 @@ import java.util.Objects;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.UnsafeBuffer;
 
-/** Raft log. */
+/**
+ * Raft log.
+ *
+ * <p>TODOs: - get rid of keeping track of the last appended entry - align names with journal API
+ * (e.g. compact, truncate, etc.) - simplify appending logic, remove hack to detect if there's an
+ * ASQN, etc. - consider getting rid of RaftLogReader knowing about RaftLog, and instead have event
+ * listeners on the log which can be aware of new commits, new entries, truncation/compaction, etc.
+ * This may help us move forward with the whole thread-safe reader concept (and further down the
+ * line with having actors, e.g. RaftLog actor, RaftLogReader actor, etc., where they don't share
+ * memory but receive messages when things happen) - consider introducing an ApplicationEntry
+ * (instead of ZeebeEntry) which ties in with the concept of ASQN - consider introducing a
+ * BatchedApplicationEntry which contains multiple ApplicationEntry (or just the data, not the whole
+ * framing), such that we could do the whole validation on ASQNs based on this and not on anything
+ * Zeebe specific. This means adding the constraint that ASQN is also a function which starts at
+ * some X >= 0, and increases by one with no gaps. - clean up unused methods
+ */
 public class RaftLog implements Closeable {
   private final Journal journal;
   private final Namespace serializer;
@@ -117,6 +132,8 @@ public class RaftLog implements Closeable {
 
   // TODO: consider getting rid of this and have consumers keep track of the last entry as it's
   // easy to forget to reset it when modifying the log
+  // the usage of getLastEntry() is purely to get the index/term of the last entry, we never
+  // actually look at the data
   public Indexed<RaftLogEntry> getLastEntry() {
     if (lastAppendedEntry == null) {
       readLastEntry();
@@ -213,6 +230,8 @@ public class RaftLog implements Closeable {
         + '}';
   }
 
+  // TODO: remove usage of builder in favour of IoC and configuration classes, where the config can
+  // be passed along instead of having all the parameters in all these builders
   /** Raft log builder. */
   public static class Builder implements io.atomix.utils.Builder<RaftLog> {
 

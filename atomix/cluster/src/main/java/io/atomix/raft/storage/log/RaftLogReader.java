@@ -24,7 +24,14 @@ import java.nio.ByteBuffer;
 import java.util.NoSuchElementException;
 import org.agrona.DirectBuffer;
 
-/** Raft log reader. */
+/**
+ * Raft log reader.
+ *
+ * <p>TODOs: - get rid of keeping track of the next index; maybe some kind of
+ * `journalReader#peek()`? - get rid of the Mode, and instead extract an interface and implement two
+ * different readers - remove direct dependency on the RaftLog, instead pass messages between
+ * (RaftLogEventListener?)
+ */
 public class RaftLogReader implements java.util.Iterator<Indexed<RaftLogEntry>>, AutoCloseable {
   private final RaftLog log;
   private final JournalReader journalReader;
@@ -78,6 +85,7 @@ public class RaftLogReader implements java.util.Iterator<Indexed<RaftLogEntry>>,
     return nextIndex;
   }
 
+  // TODO: consider if this is also useful in the journal as well
   public long seekToLast() {
     if (mode == Mode.ALL) {
       nextIndex = journalReader.seekToLast();
@@ -89,6 +97,7 @@ public class RaftLogReader implements java.util.Iterator<Indexed<RaftLogEntry>>,
   }
 
   public long seekToAsqn(final long asqn) {
+    // TODO: consider using an upper bound
     nextIndex = journalReader.seekToAsqn(asqn);
 
     // TODO: remove this weird condition - essentially if the log is empty, nextIndex is the first
