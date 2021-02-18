@@ -133,10 +133,12 @@ public final class AtomixLogStorageReader implements LogStorageReader {
    * @param index index to seek to
    */
   public Optional<Indexed<ZeebeEntry>> findEntry(final long index) {
-    final long nextIndex = reader.reset(index);
+    if (reader.getNextIndex() != index) {
+      final long nextIndex = reader.reset(index);
 
-    if (nextIndex < index) {
-      return Optional.empty();
+      if (nextIndex < index) {
+        return Optional.empty();
+      }
     }
 
     while (reader.hasNext()) {

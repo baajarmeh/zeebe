@@ -60,6 +60,10 @@ public class RaftLogReader implements java.util.Iterator<Indexed<RaftLogEntry>>,
         journalRecord.index(), entry, journalRecord.data().capacity(), journalRecord.checksum());
   }
 
+  public long getNextIndex() {
+    return nextIndex;
+  }
+
   public long reset() {
     nextIndex = journalReader.seekToFirst();
     return nextIndex;
