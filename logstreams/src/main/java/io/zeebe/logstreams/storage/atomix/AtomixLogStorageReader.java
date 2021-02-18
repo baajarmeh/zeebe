@@ -51,7 +51,6 @@ public final class AtomixLogStorageReader implements LogStorageReader {
   public long read(final DirectBuffer readBuffer, final long address) {
     final long index = reader.reset(address);
 
-    // TODO: check if important to return OP_RESULT_INVALID_ADDR if we tried to seek before
     if (index > address) {
       return LogStorage.OP_RESULT_INVALID_ADDR;
     }
@@ -77,11 +76,8 @@ public final class AtomixLogStorageReader implements LogStorageReader {
     return entry.index() + 1;
   }
 
-  // TODO: good candidate to use a seekToLastASQN()
   @Override
   public long readLastBlock(final DirectBuffer readBuffer) {
-    // TODO: could we ever have uncommitted entries with valid ASQNs on the log? then this would
-    //       explode
     reader.seekToAsqn(Long.MAX_VALUE);
 
     if (reader.hasNext()) {
@@ -126,9 +122,7 @@ public final class AtomixLogStorageReader implements LogStorageReader {
     reader.close();
   }
 
-  // TODO: good candidate to use a seekToFirstASQN()
   private long readFirstBlock() {
-    // TODO: passing in Long.MIN_VALUE causes the underlying it to overflow when seeking, resulting
     // in the reader being at the end of the log
     return findEntry(0).map(Indexed::index).orElse(LogStorage.OP_RESULT_INVALID_ADDR);
   }
@@ -139,8 +133,6 @@ public final class AtomixLogStorageReader implements LogStorageReader {
    * @param index index to seek to
    */
   public Optional<Indexed<ZeebeEntry>> findEntry(final long index) {
-    // TODO: without getting the current entry, we now always have to do a double seek, since we
-    //  first find the entry, then seek back to it again
     final long nextIndex = reader.reset(index);
 
     if (nextIndex < index) {

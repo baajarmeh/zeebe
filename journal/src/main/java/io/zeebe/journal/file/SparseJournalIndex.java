@@ -30,7 +30,6 @@ class SparseJournalIndex implements JournalIndex {
 
   public SparseJournalIndex(final int density) {
     this.density = density;
-    assert density > 0;
   }
 
   @Override

@@ -35,7 +35,6 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
 
-// TODO: rewrite these tests to not know implementation details of compaction
 public final class AtomixLogDeletionServiceTest {
 
   private static final ByteBuffer DATA = ByteBuffer.allocate(Integer.BYTES).putInt(0, 1);
@@ -133,7 +132,6 @@ public final class AtomixLogDeletionServiceTest {
       final RaftStorage.Builder builder, final TemporaryFolder folder) {
     try {
       return builder
-          // TODO: hardcoded to have one entry per segment, but these tests break our abstraction
           .withMaxSegmentSize(JournalSegmentDescriptor.BYTES + 182)
           .withSnapshotStore(
               new FileBasedSnapshotStore(
